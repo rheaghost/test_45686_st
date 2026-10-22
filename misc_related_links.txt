@@ -1,0 +1,312 @@
+MCU内置角度算法 IIC/串口输出 不开源: MCu내에 각도연산기능이 구현되어 있으며 IIC/직렬포트를 통해 출력되나 오픈소스 아님(나는 대만과 수교 당시에 학교를 다녀서 대만어 홍콩어는 판독 가능하나 다른 문자를 사용하는 중국어는 아직 어려움이 있음)
+
+AI번역: MCU contains built-in angle algorithm, outputs through I²C/UART, not open source.
+
+직렬 프로토콜의 매뉴얼은 나와 있음
+
+PS脚用于切换工作模式
+
+​
+
+默认：悬空不连接，传感器芯片独立工作模式，
+
+使用芯片自身IIC/SPI接口
+
+​
+
+高电平：MCU串口输出工作模式（PS接VCC）
+
+​
+
+低电平：MCU_IIC模式（PS接GND）
+
+PS 핀(매우 작아서 안 보임)을 오픈 상태로 놓으면 자이로칩은  독립적으로 동작하며(즉 STM32F030 칩의 개입 없이) 자체의 I2C/SPI를 통해 사용,'High'(1.8 또는 3.3V의 Vcc를 의미)로 놓으면 MCU의 직렬포트를 통해 사용하며 'Low'(Gnd)로 놓으면 MCU의 I2C 포트를 통해 입출력한다.
+
+PS pin selects operating mode.
+
+​
+
+Default (floating):
+
+Sensor chip standalone mode,
+
+use sensor's own I2C/SPI interface.
+
+​
+
+PS = High:
+
+MCU UART output mode.
+
+​
+
+PS = Low:
+
+MCU I2C output mode.
+
+​
+
+따라서 작년의 Blackpill과의 SPI 인터페이스와의 성공 예는 TDK 라이브러리를 통한  ICM45686 인스턴스 생성에 의해 초기화 인덱스접근 등이 올바르게 이루어졌기 떄문일 가능성이 크고 (다른 가능성은 MCU에의해 올바르게 활성화 초기화가 이루어진 다음에 시간이 지나서 Blackpill에 의해 접근된 경우) H7은 C언어 버전이 TDK 라이브러리와 호환되지 않으며 특히 신호 입출력이 훨씬 고속이므로 ICM45686을 3.3V 로 동작시 신호 과도현상에 의해 결국 소자가 파괴됨. (1.8V로 레벨시프터를 통해야) 
+
+​
+
+결론적으로 다른 입출력 소자와 달리 특정 레지스터에 대한 서입/판독만으로 동작이 되지 않으며 whoami 정보만 출력 가능하며   
+
+------
+
+#include <SPI.h>
+
+​
+
+#define CS_PIN PD6
+
+​
+
+void setup()
+
+{
+
+  Serial.begin(115200);
+
+​
+
+  pinMode(CS_PIN, OUTPUT);
+
+  digitalWrite(CS_PIN, HIGH);
+
+​
+
+  SPI.setMISO(PB4);
+
+  SPI.setMOSI(PB5);
+
+  SPI.setSCLK(PB3);
+
+​
+
+  SPI.begin();
+
+​
+
+  delay(200);
+
+}
+
+​
+
+uint8_t readReg(uint8_t reg)
+
+{
+
+  SPI.beginTransaction(
+
+    SPISettings(100000, MSBFIRST, SPI_MODE0));
+
+​
+
+  digitalWrite(CS_PIN, LOW);
+
+​
+
+  SPI.transfer(reg | 0x80);
+
+  uint8_t v = SPI.transfer(0x00);
+
+​
+
+  digitalWrite(CS_PIN, HIGH);
+
+​
+
+  SPI.endTransaction();
+
+​
+
+  return v;
+
+}
+
+int16_t read16(uint8_t reg)
+
+{
+
+  SPI.beginTransaction(
+
+    SPISettings(100000, MSBFIRST, SPI_MODE0));
+
+​
+
+  digitalWrite(CS_PIN, LOW);
+
+​
+
+  SPI.transfer(reg | 0x80);
+
+​
+
+  uint8_t hi = SPI.transfer(0x00);
+
+  uint8_t lo = SPI.transfer(0x00);
+
+​
+
+  digitalWrite(CS_PIN, HIGH);
+
+​
+
+  SPI.endTransaction();
+
+​
+
+  return (hi << 8) | lo;
+
+}
+
+​
+
+void spiWrite(uint8_t reg, uint8_t val)
+
+{
+
+  SPI.beginTransaction(
+
+    SPISettings(100000, MSBFIRST, SPI_MODE0));
+
+​
+
+  digitalWrite(CS_PIN, LOW);
+
+​
+
+  SPI.transfer(reg & 0x7F);   // write operation
+
+  SPI.transfer(val);
+
+​
+
+  digitalWrite(CS_PIN, HIGH);
+
+​
+
+  SPI.endTransaction();
+
+}
+
+​
+
+​
+
+void loop()
+
+{
+
+  uint8_t who = readReg(0x72);
+
+​
+
+  Serial.print("WHO=");
+
+  Serial.println(who, HEX);
+
+  delay(100);
+
+  spiWrite(0x4E, 0x0F);
+
+  delay(100);
+
+​
+
+   uint8_t pwr = readReg(0x4E);
+
+​
+
+  Serial.print("PWR=");
+
+  Serial.println(pwr, HEX);
+
+ 
+
+  int16_t ax = read16(0x1F);
+
+  int16_t ay = read16(0x21);
+
+  int16_t az = read16(0x23);
+
+​
+
+  Serial.print("A: ");
+
+  Serial.print(ax);
+
+  Serial.print(", ");
+
+  Serial.print(ay);
+
+  Serial.print(", ");
+
+  Serial.println(az);
+
+​
+
+​
+
+   
+
+​
+
+  delay(1000);
+
+}
+
+void loopmini()
+
+{
+
+    uint8_t who = readReg(0x72);
+
+​
+
+    Serial.print("WHO=");
+
+    Serial.println(who, HEX);
+
+​
+
+    delay(1000);
+
+}
+
+----
+
+WHO=E9,PWR=0
+
+A:32,0,0  이 출력되는데 이는 소자가 활성화되지 않았음을 의미한다.
+
+특정한 순서에 따라 활성화해야 하며 인덱스 레지스터에 의한 3단계 서입/판독이 요구되는데 이 과정에서 CS는 게속 low 상태로 유지하되 3개의 별도의 동작으로 완전히 분할되어야 한다고 한다.
+
+​
+
+​
+
+​
+
+참고자료:  
+
+​
+
+1)Bugobliterator:
+
+https://github.com/betaflight/betaflight/blob/master/src/main/drivers/accgyro/accgyro_spi_icm456xx.c ,https://github.com/betaflight/betaflight/blob/master/src/main/drivers/accgyro/accgyro_spi_icm456xx.h 
+
+https://gist.github.com/bugobliterator/c8e272cc78d4e65ef236503c5aac7ece
+ICM45686 Driver.cpp
+
+GitHub Gist: instantly share code, notes, and snippets.
+
+gist.github.com
+
+2)Betaflight:
+
+​
+
+, https://github.com/betaflight/betaflight/blob/master/src/main/drivers/accgyro/accgyro_spi_icm456xx.c
